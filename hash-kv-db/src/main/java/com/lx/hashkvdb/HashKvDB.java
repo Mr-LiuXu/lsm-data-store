@@ -101,6 +101,40 @@ public class HashKvDB {
     }
 
     /***
+     * 获取数据
+     * @param key
+     * @return
+     * @throws IOException
+     */
+    public Optional<String> get(String key) throws IOException {
+        try {
+            lock.readLock().lock();
+            if (!index.containsKey(key)) {
+                return Optional.empty();
+            }
+            CommandPos commandPos = index.get(key);
+            RandomAccessFile reader = readerMap.get(commandPos.getLogId());
+            if (reader == null){
+                log.error("reader is null...logId:{},key:{}", commandPos.getLogId(), key);
+            }
+            reader.seek(commandPos.getPos());
+            int len = reader.readInt();
+            byte[] buffer = new byte[len];
+            reader.read(buffer,0,len);
+            Command cmd = JSON.parseObject(buffer, Command.class);
+            if (CommandType.OP_PUT.equals(cmd.getOp())) {
+                return Optional.of(cmd.getValue());
+            }else if (CommandType.OP_RM.equals(cmd.getOp())){
+                return Optional.empty();
+            }else {
+                throw new IllegalArgumentException("命令异常");
+            }
+        }finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /***
      * 加载数据
      * @throws IOException
      */
