@@ -7,10 +7,8 @@ import com.lx.hashkvdb.command.CommandType;
 import com.lx.hashkvdb.utils.DBUtils;
 import lombok.extern.slf4j.Slf4j;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.RandomAccessFile;
+import java.io.*;
+import java.nio.charset.Charset;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -39,8 +37,9 @@ public class HashKvDB {
     /**
      *启动任务
      */
-    public void  start(){
+    public void  start() throws IOException {
         running = true;
+        load();
         final HashKvDB db = this;
         Thread checkCompact = new Thread(()->{
             while (db.running){
@@ -76,6 +75,65 @@ public class HashKvDB {
             return true;
         }finally {
             lock.writeLock().unlock();
+        }
+    }
+
+    /***
+     * 加载数据
+     * @throws IOException
+     */
+    private void load() throws IOException {
+        index.clear();
+        //加载curLogId和compactLogId
+        logIndexRW = new RandomAccessFile(DBUtils.buildFilename(path,CommandType.LOG_INDEX_FILENAME),"rw");
+        if (logIndexRW.length()==0){//空文件
+            curLogId = 0;
+            compactLogId = -1;
+            logIndexRW.writeInt(curLogId);
+            logIndexRW.writeInt(compactLogId);
+        }else {
+            curLogId = logIndexRW.readInt();
+            compactLogId -= logIndexRW.readInt();
+        }
+        writer = new RandomAccessFile(DBUtils.buildFilename(path,String.valueOf(curLogId)),"rw");
+        writer.seek(writer.length());
+        if (compactLogId>=0){
+            readerMap.put(compactLogId,new RandomAccessFile(DBUtils.buildFilename(path,String.valueOf(compactLogId)),"r"));
+            //进行日志加载
+            loadLog(compactLogId);
+        }
+        readerMap.put(curLogId,new RandomAccessFile(DBUtils.buildFilename(path,String.valueOf(curLogId)),"r"));
+        loadLog(curLogId);
+    }
+
+    /**
+     * 扫描一遍日志进行数据加载
+     * @param logId
+     * @throws IOException
+     */
+    private void loadLog(int logId) throws IOException {
+        RandomAccessFile reader = readerMap.get(logId);
+        int b;
+        byte[] buffer = new byte[CommandType.BUFFER_MX_SIZE];
+        int pos = 0;
+        while((b=reader.read())!=-1){
+            int b2 = reader.read();
+            int b3 = reader.read();
+            int b4= reader.read();
+            if ((b | b2 | b3 | b4)<0)
+                throw  new EOFException();
+            //读前4个byte,这是内容的长度
+            int len = ((b << 24 ) + (b2 << 16) + (b3 << 8) + (b4 <<0 ));
+            reader.read(buffer,0,len);
+            Command cmd = JSON.parseObject(buffer, 0, len, Charset.defaultCharset(), Command.class);
+            if (CommandType.OP_PUT.equals(cmd.getOp())){
+                index.put(cmd.getKey(), new CommandPos(pos,logId));
+            }else if (CommandType.OP_RM.equals(cmd.getOp())){
+                index.remove(cmd.getKey());
+            }else {
+                throw new IllegalArgumentException("命令异常");
+            }
+            pos += 4 + len;
         }
     }
     /***
