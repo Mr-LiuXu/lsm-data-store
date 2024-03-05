@@ -12,6 +12,7 @@ import java.nio.charset.Charset;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 @Slf4j
 public class HashKvDB {
@@ -72,6 +73,27 @@ public class HashKvDB {
             writer.writeInt(json.length);
             writer.write(json);
             index.put(key,new CommandPos(pos,curLogId));
+            return true;
+        }finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /***
+     * 删除数据
+     * @param key
+     * @return
+     * @throws IOException
+     */
+    public boolean remove(String key) throws IOException {
+        try {
+            lock.writeLock().lock();
+            Command cmd = new Command(CommandType.OP_RM, key, "");
+            byte[] json = JSON.toJSONBytes(cmd);
+            //顺序写
+            writer.writeInt(json.length);
+            writer.write(json);
+            index.remove(key);
             return true;
         }finally {
             lock.writeLock().unlock();
