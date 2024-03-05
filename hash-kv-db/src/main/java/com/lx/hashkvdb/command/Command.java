@@ -1,4 +1,4 @@
-package com.lx.hashkvdb;
+package com.lx.hashkvdb.command;
 
 public class Command {
     String op;
