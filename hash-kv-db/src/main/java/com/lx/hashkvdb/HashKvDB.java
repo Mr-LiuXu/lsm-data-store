@@ -3,7 +3,7 @@ package com.lx.hashkvdb;
 import com.alibaba.fastjson.JSON;
 import com.lx.hashkvdb.command.Command;
 import com.lx.hashkvdb.command.CommandPos;
-import com.lx.hashkvdb.command.CommandType;
+import com.lx.hashkvdb.command.Constant;
 import com.lx.hashkvdb.utils.DBUtils;
 import lombok.extern.slf4j.Slf4j;
 
@@ -67,7 +67,7 @@ public class HashKvDB {
         try {
             lock.writeLock().lock();
             long pos = writer.length();
-            Command cmd = new Command(CommandType.OP_PUT, key, value);
+            Command cmd = new Command(Constant.OP_PUT, key, value);
             byte[] json = JSON.toJSONBytes(cmd);
             //顺序写,4个byte是长度，剩下是内容
             writer.writeInt(json.length);
@@ -88,7 +88,7 @@ public class HashKvDB {
     public boolean remove(String key) throws IOException {
         try {
             lock.writeLock().lock();
-            Command cmd = new Command(CommandType.OP_RM, key, "");
+            Command cmd = new Command(Constant.OP_RM, key, "");
             byte[] json = JSON.toJSONBytes(cmd);
             //顺序写
             writer.writeInt(json.length);
@@ -122,9 +122,9 @@ public class HashKvDB {
             byte[] buffer = new byte[len];
             reader.read(buffer,0,len);
             Command cmd = JSON.parseObject(buffer, Command.class);
-            if (CommandType.OP_PUT.equals(cmd.getOp())) {
+            if (Constant.OP_PUT.equals(cmd.getOp())) {
                 return Optional.of(cmd.getValue());
-            }else if (CommandType.OP_RM.equals(cmd.getOp())){
+            }else if (Constant.OP_RM.equals(cmd.getOp())){
                 return Optional.empty();
             }else {
                 throw new IllegalArgumentException("命令异常");
@@ -141,7 +141,7 @@ public class HashKvDB {
     private void load() throws IOException {
         index.clear();
         //加载curLogId和compactLogId
-        logIndexRW = new RandomAccessFile(DBUtils.buildFilename(path,CommandType.LOG_INDEX_FILENAME),"rw");
+        logIndexRW = new RandomAccessFile(DBUtils.buildFilename(path, Constant.LOG_INDEX_FILENAME),"rw");
         if (logIndexRW.length()==0){//空文件
             curLogId = 0;
             compactLogId = -1;
@@ -149,7 +149,7 @@ public class HashKvDB {
             logIndexRW.writeInt(compactLogId);
         }else {
             curLogId = logIndexRW.readInt();
-            compactLogId -= logIndexRW.readInt();
+            compactLogId = logIndexRW.readInt();
         }
         writer = new RandomAccessFile(DBUtils.buildFilename(path,String.valueOf(curLogId)),"rw");
         writer.seek(writer.length());
@@ -170,7 +170,7 @@ public class HashKvDB {
     private void loadLog(int logId) throws IOException {
         RandomAccessFile reader = readerMap.get(logId);
         int b;
-        byte[] buffer = new byte[CommandType.BUFFER_MX_SIZE];
+        byte[] buffer = new byte[Constant.BUFFER_MX_SIZE];
         int pos = 0;
         while((b=reader.read())!=-1){
             int b2 = reader.read();
@@ -182,9 +182,9 @@ public class HashKvDB {
             int len = ((b << 24 ) + (b2 << 16) + (b3 << 8) + (b4 <<0 ));
             reader.read(buffer,0,len);
             Command cmd = JSON.parseObject(buffer, 0, len, Charset.defaultCharset(), Command.class);
-            if (CommandType.OP_PUT.equals(cmd.getOp())){
+            if (Constant.OP_PUT.equals(cmd.getOp())){
                 index.put(cmd.getKey(), new CommandPos(pos,logId));
-            }else if (CommandType.OP_RM.equals(cmd.getOp())){
+            }else if (Constant.OP_RM.equals(cmd.getOp())){
                 index.remove(cmd.getKey());
             }else {
                 throw new IllegalArgumentException("命令异常");
@@ -197,7 +197,7 @@ public class HashKvDB {
      * @throws IOException
      */
      public void  compact() throws IOException {
-        if (writer.length() <= CommandType.LOG_MX_SIZE){
+        if (writer.length() <= Constant.LOG_MX_SIZE){
             return;
         }
          compactLog();
@@ -214,13 +214,14 @@ public class HashKvDB {
         curLogId = compactTo + 1; //新写入的文件
         log.info("compact[start]...compactTo:{}", compactTo);
          Map<String, CommandPos> dumpIndex = dump();//实现WOC
-         RandomAccessFile compactWriter = new RandomAccessFile(DBUtils.buildFilename(path, String.valueOf(curLogId)), "rw");
+         writer = new RandomAccessFile(DBUtils.buildFilename(path, String.valueOf(curLogId)), "rw");
+         RandomAccessFile compactWriter = new RandomAccessFile(DBUtils.buildFilename(path, String.valueOf(compactTo)), "rw");
          readerMap.put(curLogId,new RandomAccessFile(DBUtils.buildFilename(path,String.valueOf(curLogId)),"r"));
          readerMap.put(compactTo,new RandomAccessFile(DBUtils.buildFilename(path,String.valueOf(compactTo)),"r"));
          lock.writeLock().unlock();
          //进行日志合并，因为使用了Copy-On-Write，所以不需要加锁
          long pos=0;
-         byte[] buffer = new byte[CommandType.BUFFER_MX_SIZE];
+         byte[] buffer = new byte[Constant.BUFFER_MX_SIZE];
          HashMap<String, CommandPos> indexUpdate = new HashMap<>();
          for (Map.Entry<String, CommandPos> posEntry : dumpIndex.entrySet()) {
              String key = posEntry.getKey();

@@ -1,6 +1,6 @@
 package com.lx.hashkvdb.command;
 
-public class CommandType {
+public class Constant {
     public static final String LOG_INDEX_FILENAME = "index";
     public static final String OP_PUT = "PUT";
     public static final String OP_RM = "RM";
