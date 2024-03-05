@@ -56,7 +56,28 @@ public class HashKvDB {
         });
         checkCompact.start();
     }
-
+    /***
+     * 写入数据
+     * @param key
+     * @param value
+     * @return
+     * @throws IOException
+     */
+    public boolean put(String key,String value) throws IOException {
+        try {
+            lock.writeLock().lock();
+            long pos = writer.length();
+            Command cmd = new Command(CommandType.OP_PUT, key, value);
+            byte[] json = JSON.toJSONBytes(cmd);
+            //顺序写,4个byte是长度，剩下是内容
+            writer.writeInt(json.length);
+            writer.write(json);
+            index.put(key,new CommandPos(pos,curLogId));
+            return true;
+        }finally {
+            lock.writeLock().unlock();
+        }
+    }
     /***
      * 判断是否启动合并日志
      * @throws IOException
