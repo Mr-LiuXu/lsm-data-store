@@ -47,4 +47,16 @@ public class SSTableImpl {
         }
     }
 
+    /**
+     * memTable持久化到Segment
+     * @param memTable
+     * @throws IOException
+     */
+    public void persistent(TreeMap<String,Command> memTable) throws IOException {
+        segmentId++;
+        SegmentImpl segment = new SegmentImpl(path, segmentId, partSize);
+        segment.persist(memTable);
+        segments.offerFirst(segment);
+    }
+
 }

@@ -8,6 +8,7 @@ import com.lx.lsmtreedb.wal.WALImpl;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
+import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -39,6 +40,20 @@ public class LSMTreeDB {
         this.running = true;
         reload();
         lock.writeLock().unlock();
+        final LSMTreeDB db = this;
+        Thread checkPersist = new Thread(()->{
+            while (db.running){
+              try {
+                  db.memTablePersist();
+                  Thread.sleep(1000);
+              } catch (IOException e) {
+                  throw new RuntimeException(e);
+              } catch (InterruptedException e) {
+                  throw new RuntimeException(e);
+              }
+            }
+        });
+        checkPersist.start();
     }
 
     public void  reload() throws IOException {
@@ -52,5 +67,37 @@ public class LSMTreeDB {
             this.memTable.put(command.getKey(), command);
         }
         ssTable.reload();
+    }
+
+    /**
+     * Determine whether to execute persist
+     */
+    public void memTablePersist() throws IOException {
+        if (memTable.size() <= MEM_TABLE_MAX_SIZE || persistFlag.get()) {
+            return;
+        }
+        doMemTablePersist();
+    }
+    public void doMemTablePersist() throws IOException {
+        if (persistFlag.compareAndExchange(false,true)){
+            return;
+        }
+        log.info("memTable persist[start]...");
+        lock.writeLock().lock();
+        for (Map.Entry<String, Command> entry : memTable.entrySet()) {
+            String key = entry.getKey();
+            Command command = entry.getValue();
+            immutableMemTable.put(key,command);
+        }
+        memTable.clear();
+        lock.writeLock().unlock();
+        ssTable.persistent(immutableMemTable);
+        lock.writeLock().lock();
+        immutableMemTable.clear();
+        //clear the wal
+        wal.clear();
+        lock.writeLock().unlock();
+        persistFlag.compareAndExchange(true,true);
+        log.info("memTable persist[finish]...");
     }
 }
