@@ -69,6 +69,23 @@ public class LSMTreeDB {
         ssTable.reload();
     }
 
+    /***
+     * 写入数据
+     * @param key
+     * @param value
+     * @throws IOException
+     */
+    public void put(String key,String value) throws IOException {
+        try {
+            lock.writeLock().lock();
+            Command command = new Command(Command.OP_PUT, key, value);
+            memTable.put(key,command);
+            wal.write(command);
+        }finally {
+            lock.writeLock().unlock();
+        }
+    }
+
     /**
      * Determine whether to execute persist
      */
