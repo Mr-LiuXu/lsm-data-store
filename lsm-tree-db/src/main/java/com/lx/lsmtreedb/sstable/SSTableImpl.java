@@ -30,6 +30,31 @@ public class SSTableImpl {
         }
         return null;
     }
+
+    public Collection<Command> scan(String left,String right) throws IOException {
+        TreeMap<String, Command> map = new TreeMap<>();
+        for (Segment segment : segments) {
+            Collection<Command> commands = segment.scan(left, right);
+            for (Command command : commands) {
+                if (!map.containsKey(command.getKey())){
+                    map.put(command.getKey(),command);
+                }
+            }
+        }
+        return map.values();
+    }
+    /**
+     * memTable持久化到Segment
+     * @param memTable
+     * @throws IOException
+     */
+    public void persistent(TreeMap<String,Command> memTable) throws IOException {
+        segmentId++;
+        SegmentImpl segment = new SegmentImpl(path, segmentId, partSize);
+        segment.persist(memTable);
+        segments.offerFirst(segment);
+    }
+
     public void reload() throws IOException {
         segments.clear();
         File dir = new File(path);
@@ -46,17 +71,8 @@ public class SSTableImpl {
             segments.offerLast(segment);
         }
     }
-
-    /**
-     * memTable持久化到Segment
-     * @param memTable
-     * @throws IOException
-     */
-    public void persistent(TreeMap<String,Command> memTable) throws IOException {
-        segmentId++;
-        SegmentImpl segment = new SegmentImpl(path, segmentId, partSize);
-        segment.persist(memTable);
-        segments.offerFirst(segment);
+    public void destory(){
+        segments.clear();
     }
 
 }

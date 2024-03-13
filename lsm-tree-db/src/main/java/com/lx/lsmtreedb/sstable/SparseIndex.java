@@ -38,7 +38,11 @@ public class SparseIndex {
         int l = 0,r = indexItems.size() -1;
         while (l < r){
             int mid = l + (r - l + 1) /2;
-            //TODO
+            if (indexItems.get(mid).getKey().compareTo(key) <= 0) {
+                l = mid;
+            } else {
+                r = mid - 1;
+            }
         }
         return indexItems.get(l);
     }

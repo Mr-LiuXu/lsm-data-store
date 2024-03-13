@@ -2,15 +2,18 @@ package com.lx.lsmtreedb.segment;
 
 import com.alibaba.fastjson.JSON;
 import com.lx.lsmtreedb.command.Command;
+import com.lx.lsmtreedb.command.Constant;
 import com.lx.lsmtreedb.sstable.SparseIndex;
+import com.lx.lsmtreedb.sstable.SparseIndexItem;
 import com.lx.lsmtreedb.utils.FileUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.util.Collection;
-import java.util.TreeMap;
+import java.nio.charset.Charset;
+import java.util.*;
 
 @Slf4j
 public class SegmentImpl implements Segment{
@@ -27,17 +30,82 @@ public class SegmentImpl implements Segment{
 
     @Override
     public void reload() throws IOException {
-
+        String filename = FileUtil.buildFilename(path, String.valueOf(segmentId));
+        reader = new RandomAccessFile(filename, "r");
+        if (reader.length() < SegmentMetaData.META_DATA_SIZE) {
+            log.error("read segment metadata fail");
+            throw new EOFException("read segment metadata fail");
+        }
+        byte[] buffer = new byte[SegmentMetaData.META_DATA_SIZE];
+        reader.read(buffer, 0, SegmentMetaData.META_DATA_SIZE);
+        SegmentMetaData metaData = SegmentMetaData.readBytes(buffer);
+        log.info("read metaData...segmentId:{},metaData:{}", segmentId, metaData);
+        reader.seek(metaData.getIndexOffset());
+        byte[] indexBuffer = new byte[metaData.getIndexLen()];
+        reader.read(indexBuffer);
+        this.sparseIndex = SparseIndex.parse(indexBuffer);
     }
 
+    /***
+     * 获取数据
+     * @param key
+     * @return
+     * @throws IOException
+     */
     @Override
     public Command get(String key) throws IOException {
+        log.info("get key...key:{}", key);
+        SparseIndexItem index = sparseIndex.findFirst(key);
+        if (index == null) {
+            return null;
+        }
+        reader.seek(index.getOffset());
+        int remind = index.getLen();
+        byte[] buffer = new byte[Constant.COMMAND_MAX_SIZE];
+        while (remind > 0) {
+            int commandSize = reader.readInt();
+            reader.read(buffer, 0, commandSize);
+            Command cmd = JSON.parseObject(buffer, 0, commandSize, Charset.forName("utf8"), Command.class);
+            if (cmd.getKey().equals(key)) {
+                return cmd;
+            } else if (cmd.getKey().compareTo(key) > 0) {
+                return null;
+            }
+            remind -= 4 + commandSize;
+        }
         return null;
     }
 
     @Override
     public Collection<Command> scan(String left, String right) throws IOException {
-        return null;
+        if (left.compareTo(right) > 0) {
+            return Collections.emptyList();
+        }
+        SparseIndexItem first = sparseIndex.findFirst(left);
+        SparseIndexItem last = sparseIndex.findFirst(right);
+        if (last == null) {
+            return Collections.emptyList();
+        }
+        long offset = 0;
+        if (first != null) {
+            offset = first.getOffset();
+        }
+        long end = last.getOffset() + last.getLen();
+        reader.seek(offset);
+        byte[] buffer = new byte[Constant.COMMAND_MAX_SIZE];
+        List<Command> res = new ArrayList<>();
+        while (offset < end) {
+            int commandSize = reader.readInt();
+            reader.read(buffer, 0, commandSize);
+            Command cmd = JSON.parseObject(buffer, 0, commandSize, Charset.forName("utf8"), Command.class);
+            if (cmd.getKey().compareTo(right) > 0) {
+                break;
+            } else if (cmd.getKey().compareTo(left) >= 0) {
+                res.add(cmd);
+            }
+            offset += 4 + commandSize;
+        }
+        return res;
     }
 
     @Override

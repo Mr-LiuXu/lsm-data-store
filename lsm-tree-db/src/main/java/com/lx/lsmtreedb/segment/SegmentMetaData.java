@@ -3,7 +3,7 @@ package com.lx.lsmtreedb.segment;
 import java.nio.ByteBuffer;
 
 public class SegmentMetaData {
-    public static final int META_DATA_SIZE = 8 + 4 + 6 + 4;
+    public static final int META_DATA_SIZE = 8 + 4 + 8 + 4;
     private long dataOffset;
     private int dataLen;
     private long indexOffset;
